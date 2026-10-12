@@ -29,13 +29,6 @@ share/python-wheels/
 *-checkpoint.py
 *.nbconvert.ipynb
 
-data/
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-*.gz
-
 checkpoints/
 *.pt
 *.pth
