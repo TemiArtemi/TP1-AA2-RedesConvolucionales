@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, Optional, Tuple
 
 
@@ -98,7 +98,49 @@ AUGMENTED_CONFIG: ExperimentConfig = ExperimentConfig(
     ),
 )
 
+NORMALIZED_CONFIG: ExperimentConfig = replace(
+    AUGMENTED_CONFIG,
+    experiment_id="E3",
+    data=replace(AUGMENTED_CONFIG.data, normalize=True),
+)
+
+HIGH_RESOLUTION_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E4",
+    data=replace(NORMALIZED_CONFIG.data, image_size=128),
+)
+
+WIDER_CONFIG: ExperimentConfig = replace(
+    HIGH_RESOLUTION_CONFIG,
+    experiment_id="E5",
+    architecture=replace(
+        HIGH_RESOLUTION_CONFIG.architecture,
+        conv_channels=(32, 64, 128),
+        fc_hidden_units=256,
+    ),
+)
+
+LOWER_LEARNING_RATE_CONFIG: ExperimentConfig = replace(
+    WIDER_CONFIG,
+    experiment_id="E6",
+    training=replace(WIDER_CONFIG.training, learning_rate=0.0005),
+)
+
+ELU_ACTIVATION_CONFIG: ExperimentConfig = replace(
+    LOWER_LEARNING_RATE_CONFIG,
+    experiment_id="E7",
+    architecture=replace(LOWER_LEARNING_RATE_CONFIG.architecture, activation="elu"),
+)
+
 CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E1": BASELINE_CONFIG,
     "E2": AUGMENTED_CONFIG,
+    "E3": NORMALIZED_CONFIG,
+    "E4": HIGH_RESOLUTION_CONFIG,
+    "E5": WIDER_CONFIG,
+    "E6": LOWER_LEARNING_RATE_CONFIG,
+    "E7": ELU_ACTIVATION_CONFIG,
 }
+
+PRIMARY_EXPERIMENT_IDS: Tuple[str, ...] = ("E1", "E2", "E3", "E4", "E5")
+RESERVE_EXPERIMENT_IDS: Tuple[str, ...] = ("E6", "E7")
