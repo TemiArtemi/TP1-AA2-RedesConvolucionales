@@ -227,3 +227,38 @@ street               4         2         0         0         0        25
 ### Siguiente paso previsto
 
 Introducir **normalización** de entrada (`Normalize` con media/desvío por canal) y, en paralelo, explorar capacidad y resolución (nº de filtros, neuronas FC, 128×128) junto con el learning rate. Candidato inmediato E3: normalización sobre la base de E2.
+
+---
+
+## Plan de experimentos
+
+La búsqueda manual consta de **5 configuraciones** (E1–E5), que cumplen el mínimo exigido por la guía. Son **acumulativas**: cada una cambia **una sola cosa** respecto a la anterior para aislar su efecto, y todas heredan la augmentación de E2.
+
+**Cadena principal — E1 a E5**
+
+| ID | Cambio respecto al anterior | Resolución | Canales conv | Neuronas FC | Activación | LR | Parámetros | Estado |
+|----|------------------------------|:----------:|:------------:|:-----------:|:----------:|:--:|-----------:|:------:|
+| E1 | Baseline | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | hecho |
+| E2 | + **Data augmentation** | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | hecho |
+| E3 | + **Normalización** | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | pendiente |
+| E4 | + **Resolución 128×128** | 128 | 16-32-64 | 128 | ReLU | 0,001 | 2.163.366 | pendiente |
+| E5 | + **Capacidad** (más filtros y neuronas FC) | 128 | 32-64-128 | 256 | ReLU | 0,001 | 8.649.030 | pendiente |
+
+**Reserva — usar solo si E5 no alcanza el 85% en test**
+
+| ID | Cambio respecto al anterior | Resolución | Canales conv | Neuronas FC | Activación | LR | Parámetros | Estado |
+|----|------------------------------|:----------:|:------------:|:-----------:|:----------:|:--:|-----------:|:------:|
+| E6 | + **Learning rate 0,0005** | 128 | 32-64-128 | 256 | ReLU | 0,0005 | 8.649.030 | reserva |
+| E7 | + **Activación ELU** | 128 | 32-64-128 | 256 | ELU | 0,0005 | 8.649.030 | reserva |
+
+E6 y E7 quedan definidos en `src/config.py` (`RESERVE_EXPERIMENT_IDS`) por si E5 no llega al objetivo. Si al cerrar la búsqueda no se han usado, se eliminan del registro (`CONFIG_REGISTRY`) y de esta tabla.
+
+**Ejecución.** Todas las configuraciones se lanzan con el mismo comando cambiando el ID:
+
+```powershell
+python -m src.run_experiment --config E3
+```
+
+Cada ejecución genera `reports/<ID>_history.json`, `reports/<ID>_curves.png`, `reports/<ID>_{val,test}_confusion.png` y `reports/<ID>_summary.md` (con la tabla de configuración y las métricas, lista para volcar aquí).
+
+**Nota de diseño.** Si alguna prueba de la cadena empeora respecto a su predecesora, se documenta y la siguiente debe partir del mejor modelo conocido en vez de seguir la cadena, indicándolo en la columna «Cambio».
