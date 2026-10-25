@@ -27,6 +27,7 @@ class DataConfig:
 class ArchitectureConfig:
     conv_channels: Tuple[int, ...] = (16, 32, 64)
     kernel_size: int = 5
+    fc_hidden_layer_count: int = 1
     fc_hidden_units: int = 128
     dropout_probability: float = 0.25
     activation: str = "relu"
@@ -61,6 +62,7 @@ BASELINE_CONFIG: ExperimentConfig = ExperimentConfig(
     architecture=ArchitectureConfig(
         conv_channels=(16, 32, 64),
         kernel_size=5,
+        fc_hidden_layer_count=1,
         fc_hidden_units=128,
         dropout_probability=0.25,
         activation="relu",
@@ -85,6 +87,7 @@ AUGMENTED_CONFIG: ExperimentConfig = ExperimentConfig(
     architecture=ArchitectureConfig(
         conv_channels=(16, 32, 64),
         kernel_size=5,
+        fc_hidden_layer_count=1,
         fc_hidden_units=128,
         dropout_probability=0.25,
         activation="relu",
@@ -110,26 +113,62 @@ HIGH_RESOLUTION_CONFIG: ExperimentConfig = replace(
     data=replace(NORMALIZED_CONFIG.data, image_size=128),
 )
 
-WIDER_CONFIG: ExperimentConfig = replace(
-    HIGH_RESOLUTION_CONFIG,
+MORE_FILTERS_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
     experiment_id="E5",
     architecture=replace(
-        HIGH_RESOLUTION_CONFIG.architecture,
+        NORMALIZED_CONFIG.architecture,
         conv_channels=(32, 64, 128),
-        fc_hidden_units=256,
     ),
 )
 
-LOWER_LEARNING_RATE_CONFIG: ExperimentConfig = replace(
-    WIDER_CONFIG,
+MORE_NEURONS_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
     experiment_id="E6",
-    training=replace(WIDER_CONFIG.training, learning_rate=0.0005),
+    architecture=replace(NORMALIZED_CONFIG.architecture, fc_hidden_units=256),
+)
+
+LOWER_LEARNING_RATE_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E7",
+    training=replace(NORMALIZED_CONFIG.training, learning_rate=0.0005),
+)
+
+LARGER_BATCH_SIZE_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E8",
+    training=replace(NORMALIZED_CONFIG.training, batch_size=64),
 )
 
 ELU_ACTIVATION_CONFIG: ExperimentConfig = replace(
-    LOWER_LEARNING_RATE_CONFIG,
-    experiment_id="E7",
-    architecture=replace(LOWER_LEARNING_RATE_CONFIG.architecture, activation="elu"),
+    NORMALIZED_CONFIG,
+    experiment_id="E9",
+    architecture=replace(NORMALIZED_CONFIG.architecture, activation="elu"),
+)
+
+DEEPER_CONVOLUTION_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E10",
+    architecture=replace(
+        NORMALIZED_CONFIG.architecture,
+        conv_channels=(16, 32, 64, 128),
+    ),
+)
+
+DEEPER_HEAD_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E11",
+    architecture=replace(NORMALIZED_CONFIG.architecture, fc_hidden_layer_count=2),
+)
+
+LONGER_TRAINING_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E12",
+    training=replace(
+        NORMALIZED_CONFIG.training,
+        num_epochs=100,
+        patience=15,
+    ),
 )
 
 CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
@@ -137,10 +176,15 @@ CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E2": AUGMENTED_CONFIG,
     "E3": NORMALIZED_CONFIG,
     "E4": HIGH_RESOLUTION_CONFIG,
-    "E5": WIDER_CONFIG,
-    "E6": LOWER_LEARNING_RATE_CONFIG,
-    "E7": ELU_ACTIVATION_CONFIG,
+    "E5": MORE_FILTERS_CONFIG,
+    "E6": MORE_NEURONS_CONFIG,
+    "E7": LOWER_LEARNING_RATE_CONFIG,
+    "E8": LARGER_BATCH_SIZE_CONFIG,
+    "E9": ELU_ACTIVATION_CONFIG,
+    "E10": DEEPER_CONVOLUTION_CONFIG,
+    "E11": DEEPER_HEAD_CONFIG,
+    "E12": LONGER_TRAINING_CONFIG,
 }
 
-PRIMARY_EXPERIMENT_IDS: Tuple[str, ...] = ("E1", "E2", "E3", "E4", "E5")
-RESERVE_EXPERIMENT_IDS: Tuple[str, ...] = ("E6", "E7")
+PHASE_ONE_IDS: Tuple[str, ...] = ("E1", "E2", "E3", "E4")
+PHASE_TWO_IDS: Tuple[str, ...] = ("E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12")

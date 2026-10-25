@@ -32,6 +32,9 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
         assert n_classes > 0, "n_classes must be positive"
         assert len(architecture.conv_channels) > 0, "at least one conv layer required"
+        assert architecture.fc_hidden_layer_count > 0, (
+            "fc_hidden_layer_count must be positive"
+        )
         assert image_size % (2 ** len(architecture.conv_channels)) == 0, (
             "image_size must be divisible by the total pooling factor"
         )
@@ -63,12 +66,20 @@ class ConvNet(nn.Module):
         flattened_features: int = in_channels * spatial_size * spatial_size
 
         self.dropout: nn.Dropout = nn.Dropout(p=architecture.dropout_probability)
-        self.fc1: nn.Linear = nn.Linear(flattened_features, architecture.fc_hidden_units)
-        self.fc2: nn.Linear = nn.Linear(architecture.fc_hidden_units, n_classes)
+
+        self.fc_layers: nn.ModuleList = nn.ModuleList()
+        in_features: int = flattened_features
+        for _ in range(architecture.fc_hidden_layer_count):
+            self.fc_layers.append(
+                nn.Linear(in_features, architecture.fc_hidden_units)
+            )
+            in_features = architecture.fc_hidden_units
+        self.classifier: nn.Linear = nn.Linear(in_features, n_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for conv_layer in self.conv_layers:
             x = self.pool(self.activation(conv_layer(x)))
         x = x.flatten(1)
-        x = self.dropout(self.activation(self.fc1(x)))
-        return self.fc2(x)
+        for fc_layer in self.fc_layers:
+            x = self.dropout(self.activation(fc_layer(x)))
+        return self.classifier(x)
