@@ -21,7 +21,7 @@ La búsqueda manual se divide en **dos fases**. La separación no es arbitraria:
 
 En E1 el modelo se satura en la época 10 y el early stopping corta en la 20. Si en ese punto hubiéramos ajustado épocas, paciencia o learning rate, los habríamos afinado contra un techo de cristal que la augmentación después elimina. **Los hiperparámetros hay que buscarlos sobre la configuración que se va a entregar**, y esa configuración incluye el preprocesado.
 
-**Fase 2 — buscar los hiperparámetros del enunciado.** Fijado el preprocesado, se parte de la mejor base y se cambia **un hiperparámetro por experimento** hasta cubrir los siete de la guía. Ver el plan al final del documento.
+**Fase 2 — buscar los hiperparámetros del enunciado.** Fijado el preprocesado, se parte de la mejor base y se cambia **un hiperparámetro por experimento** hasta cubrir los siete de la guía. Ver «Fase 2 — Cribado de hiperparámetros» al final del documento.
 
 ### Elección de la base: E3
 
@@ -485,22 +485,29 @@ Cierre de la Fase 1 y apertura de la **Fase 2: búsqueda de hiperparámetros des
 
 ---
 
-## Plan — Fase 2: búsqueda de hiperparámetros
+## Fase 2 — Cribado de hiperparámetros (E5–E12)
 
-La Fase 1 deja **4 configuraciones**. La Fase 2 añade **8 más** (E5–E12), una por cada hiperparámetro de la lista del enunciado que todavía no se ha tocado. **Todas parten de E3** y cambian **una sola variable**, de modo que su efecto queda aislado.
+**8 configuraciones**, una por cada hiperparámetro de la lista del enunciado que faltaba. **Todas parten de E3** y cambian **una sola variable**, de modo que su efecto queda aislado. Todo lo no listado permanece igual que en E3: 96×96, normalización y augmentación, kernel 5, dropout 0,25, 128 neuronas FC, ReLU, LR 0,001, batch 32, techo 50 épocas.
 
-| ID | Hiperparámetro del enunciado | Cambio respecto a E3 | Estado |
-|----|------------------------------|----------------------|:------:|
-| E5 | Nº de filtros por capa convolucional | `conv_channels` 16-32-64 → **32-64-128** | pendiente |
-| E6 | Nº de neuronas por capa FC | `fc_hidden_units` 128 → **256** | pendiente |
-| E7 | Tasa de aprendizaje | `learning_rate` 0,001 → **0,0005** | pendiente |
-| E8 | Tamaño de lote | `batch_size` 32 → **64** | pendiente |
-| E9 | Funciones de activación | `activation` ReLU → **ELU** | pendiente |
-| E10 | Nº de capas convolucionales | `conv_channels` 3 → **4** capas (16-32-64-128) | pendiente |
-| E11 | Nº de capas FC | `fc_hidden_layer_count` 1 → **2** ocultas (2 → 3 capas FC) | pendiente |
-| E12 | Número de épocas | techo 50 → **100**, paciencia 10 → **15** | pendiente |
+| ID | Hiperparámetro | Cambio respecto a E3 | best_epoch | Val acc | Δ val | Test acc |
+|----|----------------|----------------------|:----------:|--------:|------:|---------:|
+| **E3** | *(referencia)* | — | 34 | **0,8441** | — | **0,8925** |
+| E5 | Nº filtros por capa conv. | `conv_channels` 16-32-64 → **32-64-128** | 17 | 0,8199 | −2,42 | 0,8387 |
+| E6 | Nº neuronas por capa FC | `fc_hidden_units` 128 → **256** | 30 | 0,8360 | −0,81 | 0,8602 |
+| E7 | Tasa de aprendizaje | `learning_rate` 0,001 → **0,0005** | 28 | 0,8602 | +1,61 | 0,8656 |
+| E8 | Tamaño de lote | `batch_size` 32 → **64** | 49 | 0,8602 | +1,61 | 0,8763 |
+| E9 | Funciones de activación | `activation` ReLU → **ELU** | 35 | **0,8817** | **+3,76** | **0,9247** |
+| E10 | Nº capas convolucionales | `conv_channels` 3 → **4** capas (16-32-64-128) | 31 | 0,8306 | −1,35 | 0,8065 |
+| E11 | Nº capas FC | `fc_hidden_layer_count` 1 → **2** ocultas | 42 | 0,8522 | +0,81 | 0,8602 |
+| E12 | Número de épocas | techo 50 → **100**, paciencia 10 → **15** | 34 | 0,8441 | 0,00 | 0,8925 |
 
-Todo lo no listado permanece igual que en E3: 96×96, normalización y augmentación de E3/E2, kernel 5, dropout 0,25, 128 neuronas FC, ReLU, LR 0,001, batch 32, techo 50 épocas.
+**Lo destacado**
+
+- **E9 (ELU) es el único resultado claro: +3,76 pp en validación y 0,9247 en test**, el mejor de los 12 en ambos conjuntos. Misma arquitectura y mismos 1.245.862 parámetros que E3, así que la mejora procede solo de la activación.
+- **Más capacidad perjudica:** E5 (×2 filtros) −2,42 pp y E6 (×2 neuronas) −0,81 pp. Con 1.290 imágenes de *train*, añadir parámetros solo acrecenta el sobreajuste.
+- **Más profundidad convolutiva tampoco ayuda:** E10 cae −1,35 pp en validación y −8,60 pp en test. Es la única red **más barata** (860.966 parámetros, −31 %), pero el cuarto *pooling* deja la rejilla en 6×6 y se pierde información espacial.
+- **E12 devuelve exactamente E3:** misma `best_val_loss` (0,4908), mismo `best_epoch` (34), mismo test. El techo de épocas nunca llegó a mandar; quien decide es el *early stopping*. El hiperparámetro real es la **paciencia**, no el techo.
+- E7 (+1,61), E8 (+1,61) y E11 (+0,81) rozan o caen dentro del ruido: **señal débil**, no ganancia probada.
 
 **Cobertura de la lista del enunciado**
 
@@ -516,16 +523,8 @@ Todo lo no listado permanece igual que en E3: 96×96, normalización y augmentac
 
 Con E12 cerrada, la búsqueda queda en **12 configuraciones documentadas**, con los siete hiperparámetros cubiertos y cada uno aislado en su propio experimento.
 
-**Requisitos de implementación.** E5–E10 y E12 son pura configuración en `src/config.py`. **E11 exige modificar `src/model.py`**, porque hoy el número de capas FC está fijo en dos (`fc1` + `fc2`).
+**Implementación.** E5–E10 y E12 fueron pura configuración en `src/config.py`. **E11 exigió modificar `src/model.py`**: `fc1`/`fc2` fijas → `nn.ModuleList` + `classifier` controlado por `architecture.fc_hidden_layer_count`. Verificado tras el cambio: E3 sigue construyendo exactamente **1.245.862** parámetros y las 12 redes hacen *forward* con salida `(batch, 6)`. E10 exige `image_size % 16 == 0`, que con 96 se cumple.
 
-**Verificación previa.** E10 añade una cuarta capa con *pooling*, así que exige `image_size % 16 == 0`; con 96 se cumple (rejilla final 6×6).
+**Aviso de interpretación.** Se midió un no-determinismo de **~1-2 pp** entre ejecuciones del mismo modelo por las reducciones multihilo en CPU. Diferencias menores de esa magnitud **no deben leerse como mejoras reales**: es el motivo por el que E7, E8 y E11 quedan como señal débil y no como ganancia probada.
 
-**Aviso de interpretación.** Se midió un no-determinismo de **~1-2 pp** entre ejecuciones del mismo modelo por las reducciones multihilo en CPU. Diferencias menores de esa magnitud entre configuraciones de la Fase 2 **no deben leerse como mejoras reales**.
-
-**Ejecución.** Todas se lanzan con el mismo comando cambiando el ID:
-
-```powershell
-python -m src.run_experiment --config E5
-```
-
-Cada ejecución genera `reports/<ID>_history.json`, `reports/<ID>_curves.png`, `reports/<ID>_{val,test}_confusion.png` y `reports/<ID>_summary.md` (con la tabla de configuración y las métricas, lista para volcar aquí).
+**Siguiente paso — E13 (ensamblado).** El cribado OFAT no detecta interacciones, así que E13 combina los cambios que ganaron más de 1,5 pp: **E9 (ELU, +3,76) + E7 (LR 0,0005, +1,61) + E8 (lote 64, +1,61)**. Si E13 no supera a E3 más allá del ruido, se mantiene E3 como configuración final.
