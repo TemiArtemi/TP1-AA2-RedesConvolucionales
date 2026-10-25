@@ -6,14 +6,49 @@ Todas las ejecuciones se realizan en **CPU** con la semilla fijada en **42**. La
 
 ---
 
-## Resumen
+## Metodología: por qué dos fases
 
-| ID | Cambio respecto al anterior | best_epoch | LR | batch | Val acc | **Test acc** |
-|----|-----------------------------|:----------:|:---:|:-----:|:-------:|:------------:|
-| E1 | Baseline (arquitectura de referencia) | 10 | 0.001 | 32 | 0.7742 | **0.7527** |
-| E2 | + Data Augmentation | 22 | 0.001 | 32 | 0.8306 | **0.7849** |
+La búsqueda manual se divide en **dos fases**. La separación no es arbitraria: responde a lo que midió E1.
 
-Objetivo: ≥ 0,85 en test. Distancia actual (E2): **−6,51 pp**.
+**Fase 1 — encontrar el mejor preprocesado.** Cada experimento cambia **una sola cosa** respecto al anterior (augmentación, normalización, resolución) para aislar su efecto. Los cambios son de preprocesado, no de los hiperparámetros que enumera la guía, y se resuelven primero porque **condicionan todo lo demás**:
+
+| Experimento | `best_epoch` | Épocas ejecutadas | Ventana productiva |
+|---|:---:|:---:|---|
+| E1 (sin pipeline) | 10 | 20 | 10 épocas |
+| E2 (+ augmentación) | 22 | 32 | 22 épocas |
+| E3 (+ normalización) | 34 | 44 | 34 épocas |
+| E4 (+ resolución 128×128) | 31 | 41 | 31 épocas |
+
+En E1 el modelo se satura en la época 10 y el early stopping corta en la 20. Si en ese punto hubiéramos ajustado épocas, paciencia o learning rate, los habríamos afinado contra un techo de cristal que la augmentación después elimina. **Los hiperparámetros hay que buscarlos sobre la configuración que se va a entregar**, y esa configuración incluye el preprocesado.
+
+**Fase 2 — buscar los hiperparámetros del enunciado.** Fijado el preprocesado, se parte de la mejor base y se cambia **un hiperparámetro por experimento** hasta cubrir los siete de la guía. Ver el plan al final del documento.
+
+### Elección de la base: E3
+
+La Fase 1 dejó dos candidatas con resultados prácticamente idénticos:
+
+| | E3 (96×96) | E4 (128×128) |
+|---|---:|---:|
+| Val accuracy | 0,8441 | 0,8575 |
+| Test accuracy | **0,8925** | 0,8333 |
+| Parámetros | **1.245.862** | 2.163.366 |
+
+La diferencia en validación (1,34 pp) está dentro del margen de error de un conjunto de 372 imágenes, así que **ambas están empatadas**. Ante ese empate se elige **E3**: tiene menos parámetros (−42 %) y tarda menos por época, ya que procesa muchos menos píxeles. En test además sale por delante.
+
+> La Fase 2 parte, por tanto, de **E3**.
+
+---
+
+## Resumen — Fase 1
+
+| ID | Cambio respecto al anterior | Resolución | best_epoch | LR | batch | Val acc | **Test acc** |
+|----|-----------------------------|:----------:|:----------:|:---:|:-----:|:-------:|:------------:|
+| E1 | Baseline (arquitectura de referencia) | 96 | 10 | 0,001 | 32 | 0,7742 | 0,7527 |
+| E2 | + Data Augmentation | 96 | 22 | 0,001 | 32 | 0,8306 | 0,7849 |
+| **E3** | + Normalización | 96 | 34 | 0,001 | 32 | 0,8441 | **0,8925** |
+| E4 | + Resolución 128×128 | 128 | 31 | 0,001 | 32 | 0,8575 | 0,8333 |
+
+Objetivo: ≥ 0,85 en test. Con 186 imágenes el margen de error es de ±5 pp, así que las cifras de test deben leerse con cautela; **E3 lo alcanza con 0,8925** y E4 se queda en 0,8333.
 
 > **Nota de reproducibilidad.** E1 se registró primero de forma ad-hoc (best_epoch 11, val 0,7688, test 0,7742). Al pasar todas las pruebas por el runner unificado (`src/run_experiment.py`) en el mismo entorno, E1 reproduce best_epoch 10, val 0,7742, test 0,7527. Las diferencias (~1-2 pp) proceden del no-determinismo de las reducciones multihilo en CPU, por lo que **todas las comparaciones de la tabla usan ejecuciones del mismo runner**. La sección de E1 conserva el análisis de la ejecución original.
 
@@ -226,39 +261,271 @@ street               4         2         0         0         0        25
 
 ### Siguiente paso previsto
 
-Introducir **normalización** de entrada (`Normalize` con media/desvío por canal) y, en paralelo, explorar capacidad y resolución (nº de filtros, neuronas FC, 128×128) junto con el learning rate. Candidato inmediato E3: normalización sobre la base de E2.
+Introducir **normalización** de entrada (`Normalize` con media/desvío por canal); da E3. La exploración de resolución, capacidad y learning rate se difiere a la Fase 2: primero hay que dejar cerrado el preprocesado, porque los hiperparámetros dependen de él — como muestra la tabla de `best_epoch` de la sección de metodología.
 
 ---
 
-## Plan de experimentos
+## E3 — Normalización
 
-La búsqueda manual consta de **5 configuraciones** (E1–E5), que cumplen el mínimo exigido por la guía. Son **acumulativas**: cada una cambia **una sola cosa** respecto a la anterior para aislar su efecto, y todas heredan la augmentación de E2.
+### Hipótesis / por qué este cambio
 
-**Cadena principal — E1 a E5**
+E2 mejoró la validación hasta 0,8306 pero dejó el test en 0,7849. Sin normalizar, los tres canales RGB entran en la red con escalas distintas (la media del canal rojo es 0,485 y la del azul 0,406), y la primera capa convolucional tiene que compensar esa diferencia por sí sola. Se añade `Normalize` con las medias y desviaciones estándar de ImageNet, aplicada a **los tres conjuntos**; la augmentación sigue siendo exclusiva de train.
 
-| ID | Cambio respecto al anterior | Resolución | Canales conv | Neuronas FC | Activación | LR | Parámetros | Estado |
-|----|------------------------------|:----------:|:------------:|:-----------:|:----------:|:--:|-----------:|:------:|
-| E1 | Baseline | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | hecho |
-| E2 | + **Data augmentation** | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | hecho |
-| E3 | + **Normalización** | 96 | 16-32-64 | 128 | ReLU | 0,001 | 1.245.862 | pendiente |
-| E4 | + **Resolución 128×128** | 128 | 16-32-64 | 128 | ReLU | 0,001 | 2.163.366 | pendiente |
-| E5 | + **Capacidad** (más filtros y neuronas FC) | 128 | 32-64-128 | 256 | ReLU | 0,001 | 8.649.030 | pendiente |
+### Configuración
 
-**Reserva — usar solo si E5 no alcanza el 85% en test**
+**Datos**
 
-| ID | Cambio respecto al anterior | Resolución | Canales conv | Neuronas FC | Activación | LR | Parámetros | Estado |
-|----|------------------------------|:----------:|:------------:|:-----------:|:----------:|:--:|-----------:|:------:|
-| E6 | + **Learning rate 0,0005** | 128 | 32-64-128 | 256 | ReLU | 0,0005 | 8.649.030 | reserva |
-| E7 | + **Activación ELU** | 128 | 32-64-128 | 256 | ELU | 0,0005 | 8.649.030 | reserva |
+| Parámetro | Valor |
+|---|---|
+| Imágenes curadas | 308 por clase × 6 = 1.848 |
+| Reparto | 70 / 20 / 10, estratificado, semilla 42 |
+| Train / Val / Test | 1.290 / 372 / 186 |
+| Resolución | 96×96 |
+| Normalización | `Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])` |
+| Augmentación | **idéntica a E2**, solo en train |
+| Batch size | 32 |
+| `num_workers` | 0 |
 
-E6 y E7 quedan definidos en `src/config.py` (`RESERVE_EXPERIMENT_IDS`) por si E5 no llega al objetivo. Si al cerrar la búsqueda no se han usado, se eliminan del registro (`CONFIG_REGISTRY`) y de esta tabla.
+**Arquitectura — `ConvNet`** (idéntica a E1/E2)
 
-**Ejecución.** Todas las configuraciones se lanzan con el mismo comando cambiando el ID:
+| Capa | Configuración | Parámetros |
+|---|---|---:|
+| `conv1` | Conv2d 3→16, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 1.216 |
+| `conv2` | Conv2d 16→32, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 12.832 |
+| `conv3` | Conv2d 32→64, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 51.264 |
+| `fc1` | Linear 9216→128 + ReLU + Dropout 0,25 | 1.179.776 |
+| `fc2` | Linear 128→6 | 774 |
+| | **Total** | **1.245.862** |
+
+**Entrenamiento**
+
+| Parámetro | Valor |
+|---|---|
+| Épocas (techo) | 50 |
+| Early stopping | paciencia 10, `min_delta` 0,0 sobre `val_loss` |
+| Optimizador | Adam, learning rate 0,001 |
+| Función de activación | ReLU |
+| Pérdida | CrossEntropyLoss |
+
+### Resultados
+
+| Métrica | Valor |
+|---|---:|
+| `best_epoch` | **34** |
+| `best_val_loss` | 0,4908 |
+| `val_accuracy` en `best_epoch` | 0,8441 |
+| Épocas ejecutadas | 44 (corte por early stopping) |
+| **`test_accuracy`** | **0,8925** |
+| `test_loss` | 0,3359 |
+| Precision macro / weighted | 0,8926 / 0,8926 |
+| Recall macro / weighted | 0,8925 / 0,8925 |
+| F1 macro / weighted | 0,8918 / 0,8918 |
+
+**Métricas por clase (test)**
+
+| Clase | Precision | Recall | F1 | Soporte |
+|---|---:|---:|---:|---:|
+| buildings | 0,8387 | 0,8387 | 0,8387 | 31 |
+| forest | 0,9677 | 0,9677 | 0,9677 | 31 |
+| glacier | 1,0000 | 0,9677 | 0,9836 | 31 |
+| mountain | 0,8214 | 0,7419 | 0,7796 | 31 |
+| sea | 0,8529 | 0,9355 | 0,8923 | 31 |
+| street | 0,8750 | 0,9032 | 0,8889 | 31 |
+
+**Matriz de confusión — validación** (filas = clase real, columnas = predicha)
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           48         0         2         6         2         4
+forest               2        59         0         0         0         1
+glacier              0         0        56         2         4         0
+mountain             5         0         3        44         8         2
+sea                  0         0         1         4        55         2
+street               6         1         0         2         1        52
+```
+
+**Matriz de confusión — test**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           26         0         0         3         0         2
+forest               0        30         0         0         0         1
+glacier              0         0        30         0         1         0
+mountain             3         1         0        23         4         0
+sea                  1         0         0         0        29         1
+street               1         0         0         2         0        28
+```
+
+### Observaciones
+
+**Es el mejor test de la Fase 1 (0,8925) y la validación sigue subiendo.** Frente a E2: val +1,35 pp (0,8306 → 0,8441) y test +10,76 pp (0,7849 → 0,8925). Cuidado con la segunda cifra: con 186 imágenes el margen es de ±5 pp, así que hay que leerla como «E3 no ha empeorado el test y probablemente lo ha mejorado», no como una mejora de 10 puntos.
+
+**`mountain` es la gran beneficiada.** Su recall pasa de 0,4516 (E2) a **0,7419** (E3): 9 montañas más clasificadas correctamente. Es el salto más grande de toda la Fase 1 por clase, y es justo la clase que E1 y E2 señalaban como límite del problema. Las 8 montañas que en E2 iban a `buildings` quedan reducidas a 3.
+
+**`glacier` alcanza precisión perfecta** (1,0000): ningún ejemplo de otra clase se clasifica como glaciar. Su recall es 0,9677, con un único fallo hacia `sea`.
+
+**La ventana de entrenamiento vuelve a alargarse:** `best_epoch` 22 → 34 y corte 32 → 44. La normalización hace que la optimización converja de forma más estable y que el modelo siga mejorando durante más épocas antes de saturar.
+
+**La brecha val/test se invierte** (E2: val > test en 4,6 pp; E3: test > val en 4,8 pp). Este cambio de signo entre dos ejecuciones consecutivas es la mejor muestra de que las diferencias de test a esta escala son ruido.
+
+### Siguiente paso previsto
+
+Comprobar si la **resolución** aporta algo: E4 sube de 96×96 a 128×128 dejando todo lo demás idéntico.
+
+---
+
+## E4 — Resolución 128×128
+
+### Hipótesis / por qué este cambio
+
+Las imágenes originales del dataset miden 150×150. A 96×96 se descarta más de la mitad de los píxeles; a 128×128 se conserva bastante más detalle de bordes, texturas finas y líneas en perspectiva — útiles sobre todo para `street` y `buildings`. Se cambia **solo** `image_size`, dejando preprocesado, arquitectura y entrenamiento intactos, para aislar el efecto.
+
+### Configuración
+
+**Datos**
+
+| Parámetro | Valor |
+|---|---|
+| Imágenes curadas | 308 por clase × 6 = 1.848 |
+| Reparto | 70 / 20 / 10, estratificado, semilla 42 |
+| Train / Val / Test | 1.290 / 372 / 186 |
+| Resolución | **128×128** (E3: 96×96) |
+| Normalización | idéntica a E3 |
+| Augmentación | idéntica a E2/E3, solo en train |
+| Batch size | 32 |
+| `num_workers` | 0 |
+
+**Arquitectura — `ConvNet`**
+
+La red es la misma, pero al entrar imágenes mayores la rejilla antes del *flatten* pasa de 12×12 a 16×16, y con ella crece la capa `fc1`:
+
+| Capa | Configuración | Parámetros |
+|---|---|---:|
+| `conv1` | Conv2d 3→16, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 1.216 |
+| `conv2` | Conv2d 16→32, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 12.832 |
+| `conv3` | Conv2d 32→64, k=5, s=1, p=2 + ReLU + MaxPool 2×2 | 51.264 |
+| `fc1` | Linear **16384**→128 + ReLU + Dropout 0,25 | 2.097.280 |
+| `fc2` | Linear 128→6 | 774 |
+| | **Total** | **2.163.366** |
+
+Las capas convolucionales no cambian en absoluto: **todos los parámetros nuevos (917.504) van a parar a `fc1`**, que pasa a concentrar el 97 % de la red.
+
+**Entrenamiento**
+
+| Parámetro | Valor |
+|---|---|
+| Épocas (techo) | 50 |
+| Early stopping | paciencia 10, `min_delta` 0,0 sobre `val_loss` |
+| Optimizador | Adam, learning rate 0,001 |
+| Función de activación | ReLU |
+| Pérdida | CrossEntropyLoss |
+
+### Resultados
+
+| Métrica | Valor |
+|---|---:|
+| `best_epoch` | **31** |
+| `best_val_loss` | 0,4611 |
+| `val_accuracy` en `best_epoch` | 0,8575 |
+| Épocas ejecutadas | 41 (corte por early stopping) |
+| **`test_accuracy`** | **0,8333** |
+| `test_loss` | 0,4625 |
+| Precision macro / weighted | 0,8331 / 0,8331 |
+| Recall macro / weighted | 0,8333 / 0,8333 |
+| F1 macro / weighted | 0,8316 / 0,8316 |
+
+**Métricas por clase (test)**
+
+| Clase | Precision | Recall | F1 | Soporte |
+|---|---:|---:|---:|---:|
+| buildings | 0,7586 | 0,7097 | 0,7333 | 31 |
+| forest | 0,8529 | 0,9355 | 0,8923 | 31 |
+| glacier | 0,9677 | 0,9677 | 0,9677 | 31 |
+| mountain | 0,8148 | 0,7097 | 0,7586 | 31 |
+| sea | 0,8333 | 0,8065 | 0,8197 | 31 |
+| street | 0,7714 | 0,8710 | 0,8182 | 31 |
+
+**Matriz de confusión — validación** (filas = clase real, columnas = predicha)
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           49         2         1         3         1         6
+forest               2        58         0         0         0         2
+glacier              1         0        55         2         4         0
+mountain             6         0         5        47         1         3
+sea                  0         1         4         3        53         1
+street               3         0         0         1         1        57
+```
+
+**Matriz de confusión — test**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           22         2         1         1         1         4
+forest               0        29         0         0         0         2
+glacier              0         0        30         1         0         0
+mountain             3         1         0        22         4         1
+sea                  2         0         0         3        25         1
+street               2         2         0         0         0        27
+```
+
+### Observaciones
+
+**Val y test se mueven en direcciones opuestas.** La validación sube 1,34 pp (0,8441 → 0,8575) y el test baja 5,92 pp (0,8925 → 0,8333). Cuando dos conjuntos discrepan así, lo más probable es ruido: 372 imágenes de validación tienen ±3,6 pp de margen y 186 de test, ±5 pp. **E3 y E4 están empatadas.**
+
+**Las clases que supuestamente se beneficiarían tampoco se ponen de acuerdo.** En validación `street` gana 5 aciertos (52 → 57) y `mountain` 3 (44 → 47), que es donde encajaría la hipótesis de la resolución. Pero en test `buildings` pierde 4 (26 → 22) y `sea` pierde 4 (29 → 25), clases para las que el detalle fino no debería importar. Dos patrones sin relación: ruido.
+
+**El coste es real y medible.** Procesar un 78 % más de píxeles por imagen y absorber 917.504 parámetros más en `fc1` encarece cada época y aumenta el riesgo de sobreajuste con los mismos 1.290 datos de entrenamiento.
+
+**Conclusión de la Fase 1: E3 y E4 son intercambiables, y E3 es más barato.** Ver la sección de metodología para la elección de la base.
+
+### Siguiente paso previsto
+
+Cierre de la Fase 1 y apertura de la **Fase 2: búsqueda de hiperparámetros desde E3**, cubriendo los siete ejes que enumera la guía. Ver el plan al final del documento.
+
+---
+
+## Plan — Fase 2: búsqueda de hiperparámetros
+
+La Fase 1 deja **4 configuraciones**. La Fase 2 añade **8 más** (E5–E12), una por cada hiperparámetro de la lista del enunciado que todavía no se ha tocado. **Todas parten de E3** y cambian **una sola variable**, de modo que su efecto queda aislado.
+
+| ID | Hiperparámetro del enunciado | Cambio respecto a E3 | Estado |
+|----|------------------------------|----------------------|:------:|
+| E5 | Nº de filtros por capa convolucional | `conv_channels` 16-32-64 → **32-64-128** | pendiente |
+| E6 | Nº de neuronas por capa FC | `fc_hidden_units` 128 → **256** | pendiente |
+| E7 | Tasa de aprendizaje | `learning_rate` 0,001 → **0,0005** | pendiente |
+| E8 | Tamaño de lote | `batch_size` 32 → **64** | pendiente |
+| E9 | Funciones de activación | `activation` ReLU → **ELU** | pendiente |
+| E10 | Nº de capas convolucionales | `conv_channels` 3 → **4** capas (16-32-64-128) | pendiente |
+| E11 | Nº de capas FC | `fc_hidden_layer_count` 1 → **2** ocultas (2 → 3 capas FC) | pendiente |
+| E12 | Número de épocas | techo 50 → **100**, paciencia 10 → **15** | pendiente |
+
+Todo lo no listado permanece igual que en E3: 96×96, normalización y augmentación de E3/E2, kernel 5, dropout 0,25, 128 neuronas FC, ReLU, LR 0,001, batch 32, techo 50 épocas.
+
+**Cobertura de la lista del enunciado**
+
+| Hiperparámetro | Fase 1 | Fase 2 |
+|---|:---:|:---:|
+| El número de épocas | — | E12 |
+| La tasa de aprendizaje | — | E7 |
+| El tamaño del lote | — | E8 |
+| El número de capas convolucionales y FC | — | E10, E11 |
+| El número de filtros por capa convolucional | — | E5 |
+| El número de neuronas por capa FC | — | E6 |
+| Funciones de activación | — | E9 |
+
+Con E12 cerrada, la búsqueda queda en **12 configuraciones documentadas**, con los siete hiperparámetros cubiertos y cada uno aislado en su propio experimento.
+
+**Requisitos de implementación.** E5–E10 y E12 son pura configuración en `src/config.py`. **E11 exige modificar `src/model.py`**, porque hoy el número de capas FC está fijo en dos (`fc1` + `fc2`).
+
+**Verificación previa.** E10 añade una cuarta capa con *pooling*, así que exige `image_size % 16 == 0`; con 96 se cumple (rejilla final 6×6).
+
+**Aviso de interpretación.** Se midió un no-determinismo de **~1-2 pp** entre ejecuciones del mismo modelo por las reducciones multihilo en CPU. Diferencias menores de esa magnitud entre configuraciones de la Fase 2 **no deben leerse como mejoras reales**.
+
+**Ejecución.** Todas se lanzan con el mismo comando cambiando el ID:
 
 ```powershell
-python -m src.run_experiment --config E3
+python -m src.run_experiment --config E5
 ```
 
 Cada ejecución genera `reports/<ID>_history.json`, `reports/<ID>_curves.png`, `reports/<ID>_{val,test}_confusion.png` y `reports/<ID>_summary.md` (con la tabla de configuración y las métricas, lista para volcar aquí).
-
-**Nota de diseño.** Si alguna prueba de la cadena empeora respecto a su predecesora, se documenta y la siguiente debe partir del mejor modelo conocido en vez de seguir la cadena, indicándolo en la columna «Cambio».
