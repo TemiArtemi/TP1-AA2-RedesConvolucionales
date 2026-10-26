@@ -521,24 +521,40 @@ Cierre de la Fase 1 y apertura de la **Fase 2: búsqueda de hiperparámetros des
 | El número de neuronas por capa FC | — | E6 |
 | Funciones de activación | — | E9 |
 
-Con E12 cerrada, la búsqueda queda en **12 configuraciones documentadas**, con los siete hiperparámetros cubiertos y cada uno aislado en su propio experimento.
+Con E12 cerrada, la búsqueda queda en **12 configuraciones documentadas**, con los siete hiperparámetros cubiertos y cada uno aislado en su propio experimento. A ellas se suma **E13**, el ensamblado, que cierra la búsqueda al final del documento.
 
 **Implementación.** E5–E10 y E12 fueron pura configuración en `src/config.py`. **E11 exigió modificar `src/model.py`**: `fc1`/`fc2` fijas → `nn.ModuleList` + `classifier` controlado por `architecture.fc_hidden_layer_count`. Verificado tras el cambio: E3 sigue construyendo exactamente **1.245.862** parámetros y las 12 redes hacen *forward* con salida `(batch, 6)`. E10 exige `image_size % 16 == 0`, que con 96 se cumple.
 
 **Aviso de interpretación.** Se midió un no-determinismo de **~1-2 pp** entre ejecuciones del mismo modelo por las reducciones multihilo en CPU. Diferencias menores de esa magnitud **no deben leerse como mejoras reales**: es el motivo por el que E7, E8 y E11 quedan como señal débil y no como ganancia probada.
 
-**Siguiente paso — E13 (ensamblado).** El cribado OFAT no detecta interacciones, así que E13 combina los cambios que ganaron más de 1,5 pp sobre E3: **E9 (ELU, +3,76) + E7 (LR 0,0005, +1,61) + E8 (lote 64, +1,61)**. E11 queda fuera (+0,81, por debajo del umbral), al igual que E5, E6 y E10, que empeoran.
+## E13 — Ensamblado (E9 + E7 + E8 + E12)
 
-**¿Y por qué también E12?** E13 hereda además de E12 el **techo 100 / paciencia 15**. No es una cuarta variable experimental, es un seguro, y se justifica en tres puntos:
+### Hipótesis / por qué este cambio
 
-1. **E8 sí fue limitado por el techo.** Agotó las 50 épocas **sin que saltara el *early stopping***, con el mejor modelo en la época **49**. En E12 ocurrió lo exactamente contrario —el *early stopping* llegó antes y el resultado salió idéntico a E3 *bit a bit*—. Con E11 y E12 ya se ha medido **en qué condiciones actúa el techo y en cuáles no**.
-2. **En E13 el techo hará casi seguro falta.** E7 parte el *learning rate* a la mitad y E8 parte los lotes por dos: juntos reducen el progreso **por época** a algo así como **una cuarta parte** del de E3 (mitad de pasos por época × mitad de tamaño de paso). A eso se suma que E8, aisladamente, ya iba atrasado. E13 es la configuración con más probabilidades de necesitar margen de todas las probadas.
-3. **El margen es gratis.** E12 demostró que el techo es **inerte** cuando el *early stopping* manda primero. Un factor ya prevalidado como incapaz de perjudicar solo puede pagar cuando le toca. **Consecuencia:** E13 interpreta limpio como «¿añade algo E7 + E8 encima de E9?», sin necesidad de aislar el techo en una ejecución aparte.
+El cribado OFAT no detecta interacciones, así que E13 combina los cambios que ganaron más de 1,5 pp sobre E3: **E9 (ELU, +3,76) + E7 (LR 0,0005, +1,61) + E8 (lote 64, +1,61)**. E11 queda fuera (+0,81, bajo el umbral), igual que E5, E6 y E10, que empeoran. La pregunta concreta: **¿añade algo E7 + E8 encima de E9?**
 
-**Regla de decisión — fijada antes de ejecutar.** La barra de E13 **no es E3, es E9**: E9 ya está en 0,8817 val / 0,9247 test y es el único de los doce que gana a E3 simultáneamente en validación **y** en test. E7 y E8 suben en validación pero bajan en test, que es la firma habitual del ruido favorable.
+E13 hereda además de E12 el **techo 100 / paciencia 15**. No era una cuarta variable experimental, sino un seguro: E8 había agotado las 50 épocas **sin que saltara el *early stopping*** (mejor en la 49), mientras que E12 probó lo contrario y salió idéntica a E3 *bit a bit*. Se sabía, por tanto, en qué condiciones actúa el techo, y se sabía que **es inerte** cuando el *early stopping* manda primero — así que incluirlo no podía perjudicar.
 
-> **E13 sustituye a E9 solo si `val_accuracy ≥ 0,90`** (≈ +7 imágenes de validación sobre E9, +2 pp, por encima del ruido de ~1-2 pp). Entre 0,8817 y 0,90, empate con E9 → **se queda E9**. Por debajo de 0,8817, E7/E8 no aportan → **se queda E9**.
+### Configuración
 
-En las tres ramas la búsqueda cierra con una configuración válida: E9 ya alcanza 0,9247 en test, muy por encima del 0,85 exigido.
+Idéntica a E3 salvo: `activation` **ELU** (E9), `learning_rate` **0,0005** (E7), `batch_size` **64** (E8), `num_epochs` **100** y `patience` **15** (E12). Mismos **1.245.862** parámetros que E3 y E9.
 
-**Configuración de E13** — idéntica a E3 salvo: `activation` **ELU** (E9), `learning_rate` **0,0005** (E7), `batch_size` **64** (E8), `num_epochs` **100** y `patience` **15** (E12). Mismos **1.245.862** parámetros que E3 y E9.
+### Resultados
+
+| Métrica | E9 | **E13** | E3 |
+|---|---:|---:|---:|
+| `best_epoch` | 35 | **29** | 34 |
+| `best_val_loss` | 0,4456 | 0,4632 | 0,4908 |
+| `val_accuracy` | **0,8817** | 0,8575 | 0,8441 |
+| `test_accuracy` | **0,9247** | 0,8280 | 0,8925 |
+| Épocas ejecutadas | 45 (corte) | 44 (corte) | 44 (corte) |
+
+### Observaciones
+
+**La regla decide: se queda E9.** E13 alcanza **0,8575** en validación, **−2,42 pp por debajo de E9** y por debajo de la barra de 0,90 que se fijó antes de ejecutar. En test la caída es mayor, **−9,67 pp** (0,9247 → 0,8280). Los dos conjuntos coinciden, así que no hay ambigüedad: **E7 y E8 no aportan nada encima de E9**.
+
+**La predicción sobre el techo resultó ser errónea.** Se esperaba que combinar LR ×½ y lote ×½ ralentizara tanto el entrenamiento que E13 agotara las 100 épocas. En realidad **el *early stopping* saltó en la 44**, mucho antes del techo, y el mejor modelo quedó en la **29** — *antes* incluso que el 35 de E9. ELU acelera la convergencia lo bastante para compensar con creces la mitad de *learning rate*. El techo volvió a ser inerte: la paciencia 15 solo costó 5 épocas sobre la 10 y no mejoró el mejor modelo. Incluirlo fue, como se preveía, inocuo.
+
+**Por qué perjudicó.** No se puede aislar con una sola ejecución, pero la lectura más parsimoniosa es la que ya anticipaban E7 y E8 aisladamente: **eran ruido favorable** — subían validación y bajaban test. Sumar ruido a una buena configuración solo la degrada. Queda descartada la hipótesis de interacción positiva entre ELU y un entrenamiento más lento.
+
+**Cierre de la búsqueda de hiperparámetros: 13 configuraciones documentadas.** La ganadora es **E9** — val 0,8817, **test 0,9247**, mismos 1.245.862 parámetros y mismo coste por época que E3. Es el único experimento del trabajo que gana a E3 simultáneamente en validación **y** en test, y supera holgadamente el objetivo de ≥ 0,85.
