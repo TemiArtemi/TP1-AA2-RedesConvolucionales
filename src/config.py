@@ -1,6 +1,10 @@
 from dataclasses import dataclass, replace
 from typing import Dict, Optional, Tuple
 
+CONVNET_BACKBONE: str = "convnet"
+RESNET18_HEAD_ONLY_BACKBONE: str = "resnet18_head_only"
+RESNET18_LAYER4_BACKBONE: str = "resnet18_layer4"
+
 
 @dataclass(frozen=True)
 class AugmentationConfig:
@@ -25,6 +29,7 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class ArchitectureConfig:
+    backbone: str = CONVNET_BACKBONE
     conv_channels: Tuple[int, ...] = (16, 32, 64)
     kernel_size: int = 5
     fc_hidden_layer_count: int = 1
@@ -184,6 +189,26 @@ ASSEMBLED_CONFIG: ExperimentConfig = replace(
     ),
 )
 
+TRANSFER_HEAD_ONLY_CONFIG: ExperimentConfig = replace(
+    ELU_ACTIVATION_CONFIG,
+    experiment_id="E14",
+    data=replace(ELU_ACTIVATION_CONFIG.data, image_size=224),
+    architecture=replace(
+        ELU_ACTIVATION_CONFIG.architecture,
+        backbone=RESNET18_HEAD_ONLY_BACKBONE,
+    ),
+)
+
+TRANSFER_LAST_BLOCK_CONFIG: ExperimentConfig = replace(
+    ELU_ACTIVATION_CONFIG,
+    experiment_id="E15",
+    data=replace(ELU_ACTIVATION_CONFIG.data, image_size=224),
+    architecture=replace(
+        ELU_ACTIVATION_CONFIG.architecture,
+        backbone=RESNET18_LAYER4_BACKBONE,
+    ),
+)
+
 CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E1": BASELINE_CONFIG,
     "E2": AUGMENTED_CONFIG,
@@ -198,8 +223,11 @@ CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E11": DEEPER_HEAD_CONFIG,
     "E12": LONGER_TRAINING_CONFIG,
     "E13": ASSEMBLED_CONFIG,
+    "E14": TRANSFER_HEAD_ONLY_CONFIG,
+    "E15": TRANSFER_LAST_BLOCK_CONFIG,
 }
 
 PHASE_ONE_IDS: Tuple[str, ...] = ("E1", "E2", "E3", "E4")
 PHASE_TWO_IDS: Tuple[str, ...] = ("E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12")
 ASSEMBLY_IDS: Tuple[str, ...] = ("E13",)
+TRANSFER_LEARNING_IDS: Tuple[str, ...] = ("E14", "E15")
