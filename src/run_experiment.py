@@ -7,12 +7,25 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.config import CONFIG_REGISTRY, ExperimentConfig
+from src.config import (
+    CONVNET_BACKBONE,
+    CONFIG_REGISTRY,
+    ArchitectureConfig,
+    ExperimentConfig,
+    RESNET18_HEAD_ONLY_BACKBONE,
+    RESNET18_LAYER4_BACKBONE,
+)
 from src.dataset import build_dataloaders, discover_class_names, set_random_seed
 from src.evaluate import EvaluationResult, evaluate_model, print_evaluation_summary
 from src.model import ConvNet
 from src.plotting import plot_confusion_matrix, plot_training_history
 from src.train import train_model
+from src.transfer_learning import (
+    HEAD_DROPOUT_PROBABILITY,
+    HEAD_HIDDEN_UNITS,
+    build_head_and_last_layer_model,
+    build_head_only_model,
+)
 
 DATA_DIRECTORY: Path = Path("data")
 REPORTS_DIRECTORY: Path = Path("reports")
@@ -29,15 +42,77 @@ def find_best_epoch(history: Dict[str, List[float]]) -> int:
     return best_index + 1
 
 
+def build_model(
+    architecture: ArchitectureConfig,
+    image_size: int,
+    n_classes: int,
+) -> nn.Module:
+    backbone: str = architecture.backbone
+    if backbone == RESNET18_HEAD_ONLY_BACKBONE:
+        return build_head_only_model(
+            n_classes=n_classes,
+            activation=architecture.activation,
+        )
+    if backbone == RESNET18_LAYER4_BACKBONE:
+        return build_head_and_last_layer_model(
+            n_classes=n_classes,
+            activation=architecture.activation,
+        )
+    assert backbone == CONVNET_BACKBONE, f"unsupported backbone: {backbone}"
+    return ConvNet(
+        architecture=architecture,
+        image_size=image_size,
+        n_classes=n_classes,
+    )
+
+
+def format_architecture_rows(
+    config: ExperimentConfig,
+    n_classes: int,
+    total_parameters: int,
+    trainable_parameters: int,
+) -> List[str]:
+    architecture = config.architecture
+    rows: List[str] = [f"| Backbone | {architecture.backbone} |"]
+
+    if architecture.backbone == CONVNET_BACKBONE:
+        channels_text: str = " - ".join(str(value) for value in architecture.conv_channels)
+        rows.extend([
+            f"| Canales convolucionales | {channels_text} |",
+            f"| Kernel | {architecture.kernel_size} |",
+            f"| Capas ocultas FC | {architecture.fc_hidden_layer_count} |",
+            f"| Neuronas FC | {architecture.fc_hidden_units} |",
+            f"| Dropout | {architecture.dropout_probability} |",
+        ])
+    else:
+        trainable_blocks: str = (
+            "ninguno (backbone completo congelado)"
+            if architecture.backbone == RESNET18_HEAD_ONLY_BACKBONE
+            else "layer4"
+        )
+        rows.extend([
+            f"| Cabeza | Linear(512 → {HEAD_HIDDEN_UNITS}) → {architecture.activation} → Dropout({HEAD_DROPOUT_PROBABILITY}) → Linear({HEAD_HIDDEN_UNITS} → {n_classes}) |",
+            f"| Bloques entrenables | {trainable_blocks} |",
+        ])
+
+    rows.extend([
+        f"| Activación | {architecture.activation} |",
+        f"| Parámetros totales | {total_parameters:,} |",
+        f"| Parámetros entrenables | {trainable_parameters:,} |",
+    ])
+    return rows
+
+
 def format_config_markdown(
     config: ExperimentConfig,
     class_names: List[str],
+    total_parameters: int,
+    trainable_parameters: int,
 ) -> str:
     augmentation = config.data.augmentation
     augmentation_text: str = (
         "ninguna" if augmentation is None else str(augmentation)
     )
-    channels_text: str = " - ".join(str(value) for value in config.architecture.conv_channels)
 
     lines: List[str] = [
         f"## {config.experiment_id}",
@@ -59,11 +134,16 @@ def format_config_markdown(
         "",
         "| Parámetro | Valor |",
         "|---|---|",
-        f"| Canales convolucionales | {channels_text} |",
-        f"| Kernel | {config.architecture.kernel_size} |",
-        f"| Neuronas FC | {config.architecture.fc_hidden_units} |",
-        f"| Dropout | {config.architecture.dropout_probability} |",
-        f"| Activación | {config.architecture.activation} |",
+    ]
+    lines.extend(
+        format_architecture_rows(
+            config=config,
+            n_classes=len(class_names),
+            total_parameters=total_parameters,
+            trainable_parameters=trainable_parameters,
+        )
+    )
+    lines.extend([
         "",
         "**Entrenamiento**",
         "",
@@ -76,7 +156,7 @@ def format_config_markdown(
         f"| Optimizador | Adam |",
         f"| Pérdida | CrossEntropyLoss |",
         "",
-    ]
+    ])
     return "\n".join(lines)
 
 
@@ -129,10 +209,15 @@ def run_experiment(config: ExperimentConfig) -> Dict[str, float]:
         random_seed=config.random_seed,
     )
 
-    model: ConvNet = ConvNet(
+    model: nn.Module = build_model(
         architecture=config.architecture,
         image_size=config.data.image_size,
         n_classes=len(class_names),
+    )
+
+    total_parameters: int = sum(parameter.numel() for parameter in model.parameters())
+    trainable_parameters: int = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
 
     checkpoint_path: Path = CHECKPOINTS_DIRECTORY / f"{config.experiment_id}_best.pt"
@@ -203,7 +288,12 @@ def run_experiment(config: ExperimentConfig) -> Dict[str, float]:
     print_evaluation_summary(test_result, class_names)
 
     summary_lines: List[str] = [
-        format_config_markdown(config, class_names),
+        format_config_markdown(
+            config=config,
+            class_names=class_names,
+            total_parameters=total_parameters,
+            trainable_parameters=trainable_parameters,
+        ),
         "### Resultados",
         "",
         "| Métrica | Valor |",
