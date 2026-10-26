@@ -171,6 +171,19 @@ LONGER_TRAINING_CONFIG: ExperimentConfig = replace(
     ),
 )
 
+ASSEMBLED_CONFIG: ExperimentConfig = replace(
+    NORMALIZED_CONFIG,
+    experiment_id="E13",
+    architecture=replace(NORMALIZED_CONFIG.architecture, activation="elu"),
+    training=replace(
+        NORMALIZED_CONFIG.training,
+        learning_rate=0.0005,
+        batch_size=64,
+        num_epochs=100,
+        patience=15,
+    ),
+)
+
 CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E1": BASELINE_CONFIG,
     "E2": AUGMENTED_CONFIG,
@@ -184,7 +197,9 @@ CONFIG_REGISTRY: Dict[str, ExperimentConfig] = {
     "E10": DEEPER_CONVOLUTION_CONFIG,
     "E11": DEEPER_HEAD_CONFIG,
     "E12": LONGER_TRAINING_CONFIG,
+    "E13": ASSEMBLED_CONFIG,
 }
 
 PHASE_ONE_IDS: Tuple[str, ...] = ("E1", "E2", "E3", "E4")
 PHASE_TWO_IDS: Tuple[str, ...] = ("E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12")
+ASSEMBLY_IDS: Tuple[str, ...] = ("E13",)
