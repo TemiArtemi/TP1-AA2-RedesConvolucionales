@@ -93,9 +93,14 @@ def train_model(
     assert "train" in dataloaders, "dataloaders must contain a 'train' split"
     assert "val" in dataloaders, "dataloaders must contain a 'val' split"
 
+    trainable_parameters: List[nn.Parameter] = [
+        parameter for parameter in model.parameters() if parameter.requires_grad
+    ]
+    assert trainable_parameters, "model has no trainable parameters"
+
     criterion: nn.Module = nn.CrossEntropyLoss()
     optimizer: torch.optim.Optimizer = torch.optim.Adam(
-        model.parameters(),
+        trainable_parameters,
         lr=learning_rate,
     )
     early_stopping: EarlyStopping = EarlyStopping(
