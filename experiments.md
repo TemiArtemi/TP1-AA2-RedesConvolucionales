@@ -527,4 +527,18 @@ Con E12 cerrada, la búsqueda queda en **12 configuraciones documentadas**, con 
 
 **Aviso de interpretación.** Se midió un no-determinismo de **~1-2 pp** entre ejecuciones del mismo modelo por las reducciones multihilo en CPU. Diferencias menores de esa magnitud **no deben leerse como mejoras reales**: es el motivo por el que E7, E8 y E11 quedan como señal débil y no como ganancia probada.
 
-**Siguiente paso — E13 (ensamblado).** El cribado OFAT no detecta interacciones, así que E13 combina los cambios que ganaron más de 1,5 pp: **E9 (ELU, +3,76) + E7 (LR 0,0005, +1,61) + E8 (lote 64, +1,61)**. Si E13 no supera a E3 más allá del ruido, se mantiene E3 como configuración final.
+**Siguiente paso — E13 (ensamblado).** El cribado OFAT no detecta interacciones, así que E13 combina los cambios que ganaron más de 1,5 pp sobre E3: **E9 (ELU, +3,76) + E7 (LR 0,0005, +1,61) + E8 (lote 64, +1,61)**. E11 queda fuera (+0,81, por debajo del umbral), al igual que E5, E6 y E10, que empeoran.
+
+**¿Y por qué también E12?** E13 hereda además de E12 el **techo 100 / paciencia 15**. No es una cuarta variable experimental, es un seguro, y se justifica en tres puntos:
+
+1. **E8 sí fue limitado por el techo.** Agotó las 50 épocas **sin que saltara el *early stopping***, con el mejor modelo en la época **49**. En E12 ocurrió lo exactamente contrario —el *early stopping* llegó antes y el resultado salió idéntico a E3 *bit a bit*—. Con E11 y E12 ya se ha medido **en qué condiciones actúa el techo y en cuáles no**.
+2. **En E13 el techo hará casi seguro falta.** E7 parte el *learning rate* a la mitad y E8 parte los lotes por dos: juntos reducen el progreso **por época** a algo así como **una cuarta parte** del de E3 (mitad de pasos por época × mitad de tamaño de paso). A eso se suma que E8, aisladamente, ya iba atrasado. E13 es la configuración con más probabilidades de necesitar margen de todas las probadas.
+3. **El margen es gratis.** E12 demostró que el techo es **inerte** cuando el *early stopping* manda primero. Un factor ya prevalidado como incapaz de perjudicar solo puede pagar cuando le toca. **Consecuencia:** E13 interpreta limpio como «¿añade algo E7 + E8 encima de E9?», sin necesidad de aislar el techo en una ejecución aparte.
+
+**Regla de decisión — fijada antes de ejecutar.** La barra de E13 **no es E3, es E9**: E9 ya está en 0,8817 val / 0,9247 test y es el único de los doce que gana a E3 simultáneamente en validación **y** en test. E7 y E8 suben en validación pero bajan en test, que es la firma habitual del ruido favorable.
+
+> **E13 sustituye a E9 solo si `val_accuracy ≥ 0,90`** (≈ +7 imágenes de validación sobre E9, +2 pp, por encima del ruido de ~1-2 pp). Entre 0,8817 y 0,90, empate con E9 → **se queda E9**. Por debajo de 0,8817, E7/E8 no aportan → **se queda E9**.
+
+En las tres ramas la búsqueda cierra con una configuración válida: E9 ya alcanza 0,9247 en test, muy por encima del 0,85 exigido.
+
+**Configuración de E13** — idéntica a E3 salvo: `activation` **ELU** (E9), `learning_rate` **0,0005** (E7), `batch_size` **64** (E8), `num_epochs` **100** y `patience` **15** (E12). Mismos **1.245.862** parámetros que E3 y E9.
