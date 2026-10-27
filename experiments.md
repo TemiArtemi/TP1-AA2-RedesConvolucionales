@@ -558,3 +558,153 @@ Idéntica a E3 salvo: `activation` **ELU** (E9), `learning_rate` **0,0005** (E7)
 **Por qué perjudicó.** No se puede aislar con una sola ejecución, pero la lectura más parsimoniosa es la que ya anticipaban E7 y E8 aisladamente: **eran ruido favorable** — subían validación y bajaban test. Sumar ruido a una buena configuración solo la degrada. Queda descartada la hipótesis de interacción positiva entre ELU y un entrenamiento más lento.
 
 **Cierre de la búsqueda de hiperparámetros: 13 configuraciones documentadas.** La ganadora es **E9** — val 0,8817, **test 0,9247**, mismos 1.245.862 parámetros y mismo coste por época que E3. Es el único experimento del trabajo que gana a E3 simultáneamente en validación **y** en test, y supera holgadamente el objetivo de ≥ 0,85.
+
+---
+
+## Transfer learning — E14 y E15 (ResNet18 preentrenada)
+
+### Por qué tiene sentido aquí
+
+El diagnóstico de E1 y E2 fue que **el límite no era la capacidad sino la escasez de datos**: la `ConvNet` con 1.245.862 parámetros sobre 1.290 imágenes de entrenamiento entraba pronto en sobreajuste y saturaba. Con 6 clases y ~215 imágenes por clase no hay datos suficientes para aprender desde cero qué es una montaña o un glaciar.
+
+El transfer learning ataca exactamente eso: **no hay que aprender las características, hay que reutilizarlas**. ResNet18 entrenada sobre ImageNet (1,28 M de imágenes, 1000 clases) ya sabe distinguir texturas, bordes y formas; basta con sustituir la cabeza y entrenar solo esa parte.
+
+### Qué se transfiere y qué no
+
+**No se transfiere el modelo de E9.** E9 es el **rival al que batir**, no el punto de partida. Lo que se transfiere es **el protocolo**: el reparto de datos y la semilla 42, la normalización y la augmentación de E3, el optimizador Adam con LR 0,001, el ELU de E9 y el *early stopping* con techo 50 / paciencia 10. Todo lo demás se abandona, incluida la arquitectura `ConvNet`.
+
+| Campo | E9 | E14 / E15 | ¿Por qué cambia? |
+|---|---|---|---|
+| Modelo | `ConvNet` desde cero | ResNet18 + cabeza | **lo que se pone a prueba** |
+| Resolución | 96×96 | **224×224** | escala nativa de ResNet18 |
+| Batch size | 32 | 32 | constante |
+| Activación | ELU | ELU | constante |
+| LR / épocas / paciencia | 0,001 / 50 / 10 | 0,001 / 50 / 10 | constante |
+| Normalización / augmentación | ImageNet / E3 | idénticas | constante |
+| Reparto / semilla | 1290-372-186 / 42 | idénticos | constante |
+
+**Solo cambian dos cosas, y las dos son inseparables de adoptar transfer learning**: el modelo y su escala de entrada. Se descartó 96×96 pese a ser la resolución de E9, porque ResNet18 en 96×96 queda con una rejilla de 3×3 antes del *pooling* final (su punto de diseño es 7×7 con 224×224). Con 96 un mal resultado habría sido **ininterpretable**: no se podría distinguir si fallaba la técnica o la resolución impuesta.
+
+### Los cuatro fallos del ejemplo del profesor, corregidos
+
+La estructura y las funciones se trasladan de `example/p2_transfer_learning.ipynb`, pero ese cuaderno apunta a Colab/GPU y contiene cuatro errores que aquí se corrigen:
+
+1. **No normaliza la entrada.** Alimenta ResNet18 con tensores en [0, 1] cuando sus pesos de ImageNet esperan la normalización de ImageNet. Se corrige reutilizando `NORMALIZATION_MEAN/STD` de `src/dataset.py`, que ya eran las constantes correctas: **cero trabajo añadido**.
+2. **El bucle de validación solo registra el último batch** de cada época, por lo que su `val_loss` no es la media del conjunto.
+3. **Declara las listas de precisión y nunca las usa.**
+4. **No tiene *early stopping***, requisito obligatorio de la práctica.
+
+Se añade además la única desviación respecto al ejemplo que no es una corrección: el ejemplo usa ReLU en la cabeza y aquí se usa **ELU**, para que E9 y E14 sean comparables manteniendo la activación constante.
+
+### Configuración
+
+**Backbone:** `models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)`, congelado con `parameter.requires_grad = False`.
+
+**Cabeza** (idéntica en E14 y E15): `Linear(512 → 128)` → ELU → `Dropout(0.5)` → `Linear(128 → 6)`.
+
+**Datos y entrenamiento:** 224×224, normalización de ImageNet, augmentación de E3 solo en train, batch 32, Adam LR 0,001, CrossEntropyLoss, techo 50 / paciencia 10, semilla 42.
+
+| | E14 | E15 |
+|---|---|---|
+| `backbone` | `resnet18_head_only` | `resnet18_layer4` |
+| Bloques entrenables | ninguno (backbone completo congelado) | `layer4` |
+| Parámetros totales | 11.242.950 | 11.242.950 |
+| **Parámetros entrenables** | **66.438** | **8.460.166** |
+| Parámetros congelados | 11.176.512 | 2.782.784 |
+
+### Resultados
+
+| Métrica | E9 (referencia) | **E14** | **E15** |
+|---|---:|---:|---:|
+| `best_epoch` | 35 | 21 | 7 |
+| `best_val_loss` | 0,4456 | 0,1098 | **0,0121** |
+| `val_accuracy` | 0,8817 | 0,9543 | **0,9946** |
+| **`test_accuracy`** | 0,9247 | **0,9785** | 0,9731 |
+| F1 macro (test) | — | **0,9785** | 0,9732 |
+| Épocas ejecutadas | 45 (corte) | 31 (corte) | 17 (corte) |
+
+**Métricas por clase (test)**
+
+| Clase | E14 P / R / F1 | E15 P / R / F1 |
+|---|---|---|
+| buildings | 1,0000 / 1,0000 / 1,0000 | 0,9677 / 0,9677 / 0,9677 |
+| forest | 1,0000 / 0,9677 / 0,9836 | 1,0000 / 1,0000 / 1,0000 |
+| glacier | 1,0000 / 0,9355 / 0,9667 | 1,0000 / 0,9677 / 0,9836 |
+| mountain | 0,9375 / 0,9677 / 0,9524 | 0,9677 / 0,9677 / 0,9677 |
+| sea | 0,9688 / 1,0000 / 0,9841 | 0,9375 / 0,9677 / 0,9524 |
+| street | 0,9688 / 1,0000 / 0,9841 | 0,9677 / 0,9677 / 0,9677 |
+
+**Matriz de confusión E14 — test**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           31         0         0         0         0         0
+forest               0        30         0         0         0         1
+glacier              0         0        29         2         0         0
+mountain             0         0         0        30         1         0
+sea                  0         0         0         0        31         0
+street               0         0         0         0         0        31
+```
+
+**Matriz de confusión E14 — validación**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           60         0         0         0         0         2
+forest               0        62         0         0         0         0
+glacier              0         0        55         7         0         0
+mountain             1         0         3        58         0         0
+sea                  0         0         0         1        60         1
+street               2         0         0         0         0        60
+```
+
+**Matriz de confusión E15 — test**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           30         0         0         0         0         1
+forest               0        31         0         0         0         0
+glacier              0         0        30         1         0         0
+mountain             0         0         0        30         1         0
+sea                  0         0         0         1        30         0
+street               1         0         0         0         0        30
+```
+
+**Matriz de confusión E15 — validación**
+
+```text
+             buildings    forest   glacier  mountain       sea    street
+buildings           62         0         0         0         0         0
+forest               0        62         0         0         0         0
+glacier              0         0        61         1         0         0
+mountain             0         0         0        62         0         0
+sea                  0         0         0         1        61         0
+street               0         0         0         0         0        62
+```
+
+### Observaciones
+
+**El transfer learning gana a E9 en ambos conjuntos, con mucha más margen que la diferencia entre hiperparámetros.** E14 suma **+7,26 pp en validación** (0,8817 → 0,9543) y **+5,38 pp en test** (0,9247 → 0,9785), y lo hace con **19 veces menos parámetros entrenables** (1.245.862 → 66.438). Ningún experimento de la Fase 2 llegó a +4 pp. La validación, con 372 imágenes, tiene un margen de ±3,6 pp: la ganancia de **+7,26 pp lo duplica**, y el test se mueve en la misma dirección y con una magnitud parecida. La conclusión es coherente con el diagnóstico de E1: **lo que faltaban eran datos, no capacidad**.
+
+**E14 y E15 son indistinguibles en test: la diferencia es de una imagen.** Con 186 imágenes de test, E14 se equivoca **4** veces y E15 **5**. Esa diferencia está muy por debajo del margen de ±5 pp y **no puede usarse para rankear**, por lo que se aplica la regla fijada antes de ejecutar: **se rankea por validación**, donde E15 obtiene **0,9946** (370/372, solo 2 errores) frente al 0,9543 de E14.
+
+**Pero la validación de E15 está inflada, y hay dos pruebas.** La primera es que **la brecha val–test cambia de signo** entre los dos modelos:
+
+| | val | test | test − val |
+|---|---:|---:|---:|
+| E14 | 0,9543 | 0,9785 | **+2,42 pp** |
+| E15 | 0,9946 | 0,9731 | **−2,15 pp** |
+
+En E14 el test sale mejor que la validación; en E15, peor. La segunda es la relación entre pérdidas: en el mejor epoch E15 registra `train_loss` 0,1171 y `val_loss` **0,0121**, es decir la validación es **diez veces mejor** que el entrenamiento. Que la validación supere a la entrenamiento es esperable — esta lleva augmentación y dropout activos —, pero esa magnitud es extrema.
+
+El mecanismo es el *early stopping*: selecciona el mejor epoch **mirando `val_loss`**, y E15 ejecutó **17 rondas de selección contra las mismas 372 imágenes** con 8,46 M de parámetros disponibles. Es **sobreajuste a la validación por selección**, no por entrenamiento: la pérdida de validación nunca sube de forma sostenida, y el corte llega en la época 17 muy por debajo del techo de 50.
+
+**`glacier` → `mountain` sigue siendo el punto ciego.** Es el cuarto modelo consecutivo con la misma confusión, presente incluso aquí: los **dos únicos errores de E15 en validación** fueron hacia `mountain`, y E14 acumula 7 (val) y 2 (test). Persiste con las características de ImageNet, entrenadas con un millón de imágenes, lo que indica que no es un problema de capacidad ni de datos sino de **solapamiento real entre las dos categorías**.
+
+### Conclusión
+
+**E14 es la configuración de referencia de este apartado.** Empata con E15 en test —una imagen de diferencia, ruido— pero lo consigue con **19 veces menos parámetros entrenables**, y su validación resultó *pessimista* en vez de optimista, por lo que es la estimación más honesta de generalización de las dos. Desbloquear `layer4` añade 8,39 M de parámetros sin una ganancia demostrable en el conjunto no visto.
+
+Queda constancia de que **por la regla precomprobada E15 rankea primera en validación**, y de que esa ventaja no se sostiene en test. La conclusión del apartado es que **el transfer learning ayuda claramente y que congelar el backbone entero basta**.
+
+**Total del trabajo: 15 configuraciones documentadas** — E1–E4 (preprocesado), E5–E12 (cribado de hiperparámetros), E13 (ensamblado) y E14–E15 (transfer learning). El objetivo de ≥ 0,85 en test se alcanza con **E9 (0,9247)** como mejor configuración desde cero y **E14 (0,9785)** con transfer learning.
