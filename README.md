@@ -207,5 +207,5 @@ En `checkpoints/`: `<ID>_best.pt`, los pesos del mejor epoch. **Esta carpeta pes
 
 - **Código sin comentarios** — `src/` y `requirements.txt`.
 - **Enlace al repositorio de GitHub** — donde están las imágenes y el proyecto completo.
-- **Resumen del proceso** — el informe, con las gráficas de pérdida y precisión y las matrices de confusión.
+- **Resumen del proceso** — el informe, [`informe/main.pdf`](informe/main.pdf), con las gráficas de pérdida y precisión y las matrices de confusión. El código fuente LaTeX está en [`informe/main.tex`](informe/main.tex).
 - **Registro de experimentos** — [`experiments.md`](experiments.md), con el detalle de las 15 configuraciones y el análisis de cada una.
